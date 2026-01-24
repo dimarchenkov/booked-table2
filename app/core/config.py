@@ -2,18 +2,14 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pydantic import field_validator
+from pydantic import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Base application settings loaded from environment variables."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        env_ignore_empty=True,
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     env: str = "development"
     debug: bool = True
@@ -37,7 +33,7 @@ class Settings(BaseSettings):
     tbank_terminal_key: str | None = None
 
     calendar_enabled: bool = False
-    calendar_base_url: str | None = None
+    calendar_base_url: AnyUrl | None = None
     calendar_username: str | None = None
     calendar_password: str | None = None
 
@@ -45,15 +41,6 @@ class Settings(BaseSettings):
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-
-    @field_validator("calendar_base_url", mode="before")
-    @classmethod
-    def _empty_calendar_base_url(cls, value: str | None) -> str | None:
-        """Allow empty calendar base url values to resolve to None."""
-
-        if value in ("", None):
-            return None
-        return value
 
 
 @lru_cache
