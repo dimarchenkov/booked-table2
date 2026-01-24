@@ -42,6 +42,14 @@ docker compose exec api python -m app.scripts.seed
 - Логин: `ADMIN_EMAIL`
 - Пароль: хэш `ADMIN_PASSWORD_HASH` (bcrypt)
 
+### Генерация bcrypt-хэша
+
+```bash
+python -m app.scripts.gen_admin_hash
+```
+
+Вводите пароль обычным текстом, в ответ получите bcrypt-строку для `ADMIN_PASSWORD_HASH`.
+
 ### Group poster
 
 Откройте `http://localhost:8000/admin/group-poster` для текста и ссылки для закрепа.
