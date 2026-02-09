@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     env: str = "development"
     debug: bool = True
 
-    database_url: str = "postgresql+psycopg2://booked:booked@postgres:5432/booked"
+    database_url: str = "postgresql+psycopg://booked:booked@postgres:5432/booked"
     redis_url: str = "redis://redis:6379/0"
 
     admin_email: str = "admin@example.com"
