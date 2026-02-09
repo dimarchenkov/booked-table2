@@ -1,0 +1,27 @@
+# Environment
+.env
+.env.*
+
+# IDEs
+.idea/
+.gigaide/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS files
+.DS_Store
+
+# Build artifacts
+*.log
+*.sqlite
