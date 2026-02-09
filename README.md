@@ -1,6 +1,6 @@
 # Booked Table
 
-Production-ready сервис аренды столов по времени: FastAPI + PostgreSQL + Redis + Celery + SQLAdmin + aiogram. Базовый образ использует Python 3.13.
+Production-ready сервис аренды столов по времени: FastAPI + PostgreSQL + Redis + Celery + SQLAdmin + aiogram. Базовый образ использует Python 3.13 и драйвер PostgreSQL psycopg v3.
 
 ## Быстрый старт
 
