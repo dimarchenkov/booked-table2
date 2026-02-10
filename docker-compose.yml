@@ -28,9 +28,13 @@ services:
   telegram_bot:
     build: .
     command: python -m telegram_bot.main
-    env_file: .env
     environment:
       - PYTHONPATH=/app
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - ADMIN_TG_IDS=${ADMIN_TG_IDS:-}
+      - BACKEND_URL=http://api:8000
+      - REDIS_URL=redis://redis:6379/1
     depends_on:
       api:
         condition: service_started
