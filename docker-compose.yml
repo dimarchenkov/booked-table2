@@ -3,7 +3,7 @@ version: "3.9"
 services:
   api:
     build: .
-    command: bash -c "python -m app.scripts.wait_for_db && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: bash -c "python /app/app/scripts/wait_for_db.py && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     env_file: .env
     environment:
       - PYTHONPATH=/app
@@ -15,7 +15,7 @@ services:
 
   worker:
     build: .
-    command: celery -A app.workers.celery_app.celery_app worker -B -l info
+    command: celery -A app.workers.celery_app:celery_app worker -B -l info
     env_file: .env
     environment:
       - PYTHONPATH=/app
