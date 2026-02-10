@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
-from redis import Redis
+from redis.asyncio import Redis
 
 from telegram_bot.handlers.booking import router as booking_router
 from telegram_bot.handlers.common import router as common_router
@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 settings = get_bot_settings()
 
 
-def _get_storage():
+async def _get_storage():
     try:
         redis = Redis.from_url(settings.redis_url)
-        redis.ping()
+        await redis.ping()
         return RedisStorage(redis)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Redis unavailable, using memory storage: %s", exc)
@@ -45,7 +45,7 @@ async def main() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Unable to fetch bot username: %s", exc)
 
-    storage = _get_storage()
+    storage = await _get_storage()
     dp = Dispatcher(storage=storage)
 
     backend_client = BackendClient(base_url=settings.backend_url)
