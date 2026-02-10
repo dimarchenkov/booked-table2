@@ -13,6 +13,19 @@ class BotSettings(BaseSettings):
         extra="allow",
     )
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        """Ignore dotenv source to avoid parsing unrelated keys from project .env."""
+
+        return init_settings, env_settings, file_secret_settings
+
     telegram_bot_token: str | None = None
     telegram_bot_username: str | None = None
     backend_url: str = "http://api:8000"
