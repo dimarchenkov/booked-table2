@@ -10,7 +10,7 @@ class BotSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_ignore_empty=True,
-        extra="ignore",
+        extra="allow",
     )
 
     telegram_bot_token: str | None = None
@@ -18,6 +18,16 @@ class BotSettings(BaseSettings):
     backend_url: str = "http://api:8000"
     redis_url: str = "redis://redis:6379/1"
     admin_tg_ids: str = ""
+
+    # Compatibility fields for shared .env files used by API service.
+    debug: bool | None = None
+    database_url: str | None = None
+    admin_email: str | None = None
+    admin_password_hash: str | None = None
+    tbank_enabled: bool | None = None
+    calendar_enabled: bool | None = None
+    calendar_base_url: str | None = None
+    default_timezone: str | None = None
 
 
 @lru_cache
