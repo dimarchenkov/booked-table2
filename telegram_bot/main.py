@@ -49,12 +49,15 @@ async def main() -> None:
     dp = Dispatcher(storage=storage)
 
     backend_client = BackendClient(base_url=settings.backend_url)
-    dp[BackendClient] = backend_client
+    dp["client"] = backend_client
 
     dp.include_router(common_router)
     dp.include_router(booking_router)
 
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
 
 
 if __name__ == "__main__":
