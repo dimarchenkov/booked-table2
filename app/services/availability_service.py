@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfoNotFoundError
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
@@ -102,7 +103,7 @@ class AvailabilityService:
     def _generate_day_template(self, rule: ScheduleRule, target_date: date) -> list[Slot]:
         """Generate day slots template from working hours without booking filtering."""
 
-        timezone = ZoneInfo(rule.timezone)
+        timezone = self._safe_timezone(rule.timezone)
         working_hours = self.session.execute(
             select(WorkingHour).where(WorkingHour.weekday == target_date.weekday())
         ).scalars().all()
@@ -135,3 +136,11 @@ class AvailabilityService:
                 current = current + slot_delta
 
         return slots
+
+    def _safe_timezone(self, timezone_name: str) -> ZoneInfo:
+        """Return configured timezone or fallback to UTC if tz name is invalid."""
+
+        try:
+            return ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            return ZoneInfo("UTC")
