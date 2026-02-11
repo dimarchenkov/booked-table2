@@ -128,8 +128,8 @@ class AvailabilityService:
                     slot_end = slot_end + buffer_delta
                 slots.append(
                     Slot(
-                        start_at=slot_start.astimezone(ZoneInfo("UTC")),
-                        end_at=slot_end.astimezone(ZoneInfo("UTC")),
+                        start_at=slot_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None),
+                        end_at=slot_end.astimezone(ZoneInfo("UTC")).replace(tzinfo=None),
                     )
                 )
                 current = current + slot_delta
