@@ -32,11 +32,27 @@ class BackendClient:
             response.raise_for_status()
             return response.json()
 
+    async def get_auto_availability(self, target_date: date) -> list[dict]:
+        """Fetch day slots with free/busy status across any table."""
+
+        async with httpx.AsyncClient(base_url=self.base_url) as client:
+            response = await client.get("/availability/auto", params={"date": target_date.isoformat()})
+            response.raise_for_status()
+            return response.json()
+
     async def create_hold(self, payload: dict) -> dict:
         """Create a hold booking."""
 
         async with httpx.AsyncClient(base_url=self.base_url) as client:
             response = await client.post("/bookings/hold", json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def create_hold_auto(self, payload: dict) -> dict:
+        """Create a hold with automatic table assignment."""
+
+        async with httpx.AsyncClient(base_url=self.base_url) as client:
+            response = await client.post("/bookings/hold/auto", json=payload)
             response.raise_for_status()
             return response.json()
 

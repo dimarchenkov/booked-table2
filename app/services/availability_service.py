@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Booking, BookingStatus, Closure, ScheduleRule, WorkingHour
+from app.models import Booking, BookingStatus, Closure, ScheduleRule, Table, WorkingHour
 
 
 @dataclass(slots=True)
@@ -37,11 +37,8 @@ class AvailabilityService:
         if rule is None:
             return []
 
-        timezone = ZoneInfo(rule.timezone)
-        working_hours = self.session.execute(
-            select(WorkingHour).where(WorkingHour.weekday == target_date.weekday())
-        ).scalars().all()
-        if not working_hours:
+        slots = self._generate_day_template(rule, target_date)
+        if not slots:
             return []
 
         closures = self.session.execute(
@@ -51,29 +48,6 @@ class AvailabilityService:
             )
         ).scalars().all()
         if closures:
-            return []
-
-        slots: list[Slot] = []
-        slot_delta = timedelta(minutes=rule.slot_minutes)
-        buffer_delta = timedelta(minutes=rule.buffer_minutes)
-
-        for window in working_hours:
-            if not window.is_open:
-                continue
-
-            window_start = datetime.combine(target_date, window.start_time, tzinfo=timezone)
-            window_end = datetime.combine(target_date, window.end_time, tzinfo=timezone)
-
-            current = window_start
-            while current + slot_delta <= window_end:
-                slot_start = current
-                slot_end = current + slot_delta
-                if buffer_delta:
-                    slot_end = slot_end + buffer_delta
-                slots.append(Slot(start_at=slot_start.astimezone(ZoneInfo("UTC")), end_at=slot_end.astimezone(ZoneInfo("UTC"))))
-                current = current + slot_delta
-
-        if not slots:
             return []
 
         start_range = min(slot.start_at for slot in slots)
@@ -100,3 +74,64 @@ class AvailabilityService:
                 available_slots.append(slot)
 
         return available_slots
+
+    def generate_any_table_availability(self, target_date: date) -> list[tuple[Slot, bool]]:
+        """Return slot grid for the day and availability across any active table."""
+
+        rule = self.session.execute(select(ScheduleRule)).scalar_one_or_none()
+        if rule is None:
+            return []
+
+        template = self._generate_day_template(rule, target_date)
+        if not template:
+            return []
+
+        tables = self.session.execute(select(Table).where(Table.active.is_(True))).scalars().all()
+        free_by_table: dict[int, set[tuple[datetime, datetime]]] = {}
+        for table in tables:
+            free = self.generate_slots(table.id, target_date)
+            free_by_table[table.id] = {(slot.start_at, slot.end_at) for slot in free}
+
+        result: list[tuple[Slot, bool]] = []
+        for slot in template:
+            key = (slot.start_at, slot.end_at)
+            is_free = any(key in free_keys for free_keys in free_by_table.values())
+            result.append((slot, is_free))
+        return result
+
+    def _generate_day_template(self, rule: ScheduleRule, target_date: date) -> list[Slot]:
+        """Generate day slots template from working hours without booking filtering."""
+
+        timezone = ZoneInfo(rule.timezone)
+        working_hours = self.session.execute(
+            select(WorkingHour).where(WorkingHour.weekday == target_date.weekday())
+        ).scalars().all()
+        if not working_hours:
+            return []
+
+        slots: list[Slot] = []
+        slot_delta = timedelta(minutes=rule.slot_minutes)
+        buffer_delta = timedelta(minutes=rule.buffer_minutes)
+
+        for window in working_hours:
+            if not window.is_open:
+                continue
+
+            window_start = datetime.combine(target_date, window.start_time, tzinfo=timezone)
+            window_end = datetime.combine(target_date, window.end_time, tzinfo=timezone)
+
+            current = window_start
+            while current + slot_delta <= window_end:
+                slot_start = current
+                slot_end = current + slot_delta
+                if buffer_delta:
+                    slot_end = slot_end + buffer_delta
+                slots.append(
+                    Slot(
+                        start_at=slot_start.astimezone(ZoneInfo("UTC")),
+                        end_at=slot_end.astimezone(ZoneInfo("UTC")),
+                    )
+                )
+                current = current + slot_delta
+
+        return slots

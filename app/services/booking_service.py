@@ -14,6 +14,7 @@ from app.models import (
     Payment,
     PaymentStatus,
     ScheduleRule,
+    Table,
 )
 from app.services.integrations.calendar import CalendarProvider
 from app.services.integrations.payment import PaymentProvider
@@ -49,7 +50,7 @@ class BookingService:
         """
 
         rule = self.session.execute(select(ScheduleRule)).scalar_one_or_none()
-        hold_minutes = rule.hold_minutes if rule else 10
+        _ = rule.hold_minutes if rule else 10
 
         client = self._upsert_client(tg_user_id=tg_user_id, name=name, phone=phone)
         overlap = self.session.execute(
@@ -94,6 +95,38 @@ class BookingService:
         self.session.commit()
         self.session.refresh(booking)
         return booking
+
+    def create_hold_auto(
+        self,
+        *,
+        start_at: datetime,
+        end_at: datetime,
+        tg_user_id: str,
+        name: str | None,
+        phone: str | None,
+    ) -> Booking:
+        """Create HOLD by assigning any free active table for interval."""
+
+        tables = self.session.execute(select(Table).where(Table.active.is_(True)).order_by(Table.id)).scalars().all()
+        for table in tables:
+            overlap = self.session.execute(
+                select(Booking).where(
+                    Booking.table_id == table.id,
+                    Booking.status.in_([BookingStatus.HOLD, BookingStatus.CONFIRMED]),
+                    Booking.start_at < end_at,
+                    Booking.end_at > start_at,
+                )
+            ).scalar_one_or_none()
+            if overlap is None:
+                return self.create_hold(
+                    table_id=table.id,
+                    start_at=start_at,
+                    end_at=end_at,
+                    tg_user_id=tg_user_id,
+                    name=name,
+                    phone=phone,
+                )
+        raise ValueError("No free tables for selected time interval.")
 
     def confirm_booking(self, booking_id: int) -> Booking:
         """Confirm a booking and create a calendar event."""

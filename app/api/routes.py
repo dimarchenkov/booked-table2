@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.api.schemas import (
     AvailabilitySlot,
+    DaySlotStatus,
     BookingCancelOut,
     BookingConfirmOut,
+    BookingHoldAutoIn,
     BookingHoldIn,
     BookingOut,
     TableOut,
@@ -20,7 +22,7 @@ from app.api.schemas import (
 from app.core.config import get_settings
 from datetime import datetime
 
-from app.models import Booking, BookingStatus, Client, Payment, PaymentStatus, Table
+from app.models import Booking, BookingStatus, Client, Payment, PaymentStatus, ScheduleRule, Table
 from app.services.availability_service import AvailabilityService
 from app.services.booking_service import BookingService
 from app.services.integrations.calendar import StubCalendarProvider, YandexCalDAVCalendarProvider
@@ -64,6 +66,13 @@ def availability(table_id: int, date: date, db: Session = Depends(get_db)) -> li
     return [AvailabilitySlot(start_at=s.start_at, end_at=s.end_at) for s in slots]
 
 
+@router.get("/availability/auto", response_model=list[DaySlotStatus])
+def availability_auto(date: date, db: Session = Depends(get_db)) -> list[DaySlotStatus]:
+    service = AvailabilityService(db)
+    slots = service.generate_any_table_availability(date)
+    return [DaySlotStatus(start_at=s.start_at, end_at=s.end_at, is_free=is_free) for s, is_free in slots]
+
+
 @router.post("/bookings/hold", response_model=BookingOut)
 def create_hold(payload: BookingHoldIn, db: Session = Depends(get_db)) -> BookingOut:
     service = BookingService(db, _get_payment_provider(), _get_calendar_provider())
@@ -79,6 +88,7 @@ def create_hold(payload: BookingHoldIn, db: Session = Depends(get_db)) -> Bookin
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
+    rule = db.execute(select(ScheduleRule)).scalar_one_or_none()
     payment = booking.payments[-1] if booking.payments else None
     return BookingOut(
         id=booking.id,
@@ -88,6 +98,37 @@ def create_hold(payload: BookingHoldIn, db: Session = Depends(get_db)) -> Bookin
         end_at=booking.end_at,
         status=booking.status.value,
         payment_url=payment.payment_url if payment else None,
+        table_name=booking.table.name if booking.table else None,
+        hold_minutes=rule.hold_minutes if rule else 10,
+    )
+
+
+@router.post("/bookings/hold/auto", response_model=BookingOut)
+def create_hold_auto(payload: BookingHoldAutoIn, db: Session = Depends(get_db)) -> BookingOut:
+    service = BookingService(db, _get_payment_provider(), _get_calendar_provider())
+    try:
+        booking = service.create_hold_auto(
+            start_at=payload.start_at,
+            end_at=payload.end_at,
+            tg_user_id=payload.tg_user_id,
+            name=payload.name,
+            phone=payload.phone,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    rule = db.execute(select(ScheduleRule)).scalar_one_or_none()
+    payment = booking.payments[-1] if booking.payments else None
+    return BookingOut(
+        id=booking.id,
+        table_id=booking.table_id,
+        client_id=booking.client_id,
+        start_at=booking.start_at,
+        end_at=booking.end_at,
+        status=booking.status.value,
+        payment_url=payment.payment_url if payment else None,
+        table_name=booking.table.name if booking.table else None,
+        hold_minutes=rule.hold_minutes if rule else 10,
     )
 
 
@@ -96,6 +137,7 @@ def get_booking(booking_id: int, db: Session = Depends(get_db)) -> BookingOut:
     booking = db.get(Booking, booking_id)
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    rule = db.execute(select(ScheduleRule)).scalar_one_or_none()
     payment = booking.payments[-1] if booking.payments else None
     return BookingOut(
         id=booking.id,
@@ -105,6 +147,8 @@ def get_booking(booking_id: int, db: Session = Depends(get_db)) -> BookingOut:
         end_at=booking.end_at,
         status=booking.status.value,
         payment_url=payment.payment_url if payment else None,
+        table_name=booking.table.name if booking.table else None,
+        hold_minutes=rule.hold_minutes if rule else 10,
     )
 
 
@@ -174,6 +218,7 @@ def list_bookings_for_user(tg_user_id: str, db: Session = Depends(get_db)) -> li
             Booking.status.in_([BookingStatus.HOLD, BookingStatus.CONFIRMED]),
         )
     ).scalars().all()
+    rule = db.execute(select(ScheduleRule)).scalar_one_or_none()
     result = []
     for booking in bookings:
         payment = booking.payments[-1] if booking.payments else None
@@ -186,6 +231,8 @@ def list_bookings_for_user(tg_user_id: str, db: Session = Depends(get_db)) -> li
                 end_at=booking.end_at,
                 status=booking.status.value,
                 payment_url=payment.payment_url if payment else None,
+                table_name=booking.table.name if booking.table else None,
+                hold_minutes=rule.hold_minutes if rule else 10,
             )
         )
     return result

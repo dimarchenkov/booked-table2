@@ -35,6 +35,22 @@ class BookingOut(BaseModel):
     end_at: datetime
     status: str
     payment_url: str | None = None
+    table_name: str | None = None
+    hold_minutes: int | None = None
+
+
+class BookingHoldAutoIn(BaseModel):
+    start_at: datetime
+    end_at: datetime
+    tg_user_id: str
+    name: str | None = None
+    phone: str | None = None
+
+
+class DaySlotStatus(BaseModel):
+    start_at: datetime
+    end_at: datetime
+    is_free: bool
 
 
 class BookingCancelOut(BaseModel):
