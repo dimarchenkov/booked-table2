@@ -171,7 +171,7 @@ async def choose_slot(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data == "confirm_slot" & BookingStates.confirming)
+@router.callback_query((F.data == "confirm_slot") & BookingStates.confirming)
 async def confirm_slot(callback: CallbackQuery, state: FSMContext, client: BackendClient) -> None:
     """Create booking hold with automatic table assignment."""
 
