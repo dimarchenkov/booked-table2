@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from aiogram import F, Router
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -114,7 +115,7 @@ async def change_week(callback: CallbackQuery, state: FSMContext) -> None:
     await _show_week(callback, state, week_start=week_start)
 
 
-@router.callback_query(F.data.startswith("day:") & BookingStates.choosing_day)
+@router.callback_query(F.data.startswith("day:"), StateFilter(BookingStates.choosing_day))
 async def choose_day(callback: CallbackQuery, state: FSMContext, client: BackendClient) -> None:
     """Handle day selection."""
 
@@ -125,7 +126,7 @@ async def choose_day(callback: CallbackQuery, state: FSMContext, client: Backend
     await _show_slots(callback, state, client, day, page=0)
 
 
-@router.callback_query(F.data.startswith("slots_page:") & BookingStates.choosing_slot)
+@router.callback_query(F.data.startswith("slots_page:"), StateFilter(BookingStates.choosing_slot))
 async def slots_page(callback: CallbackQuery, state: FSMContext, client: BackendClient) -> None:
     """Handle slot pagination."""
 
@@ -133,14 +134,14 @@ async def slots_page(callback: CallbackQuery, state: FSMContext, client: Backend
     await _show_slots(callback, state, client, date.fromisoformat(day_iso), int(page_raw))
 
 
-@router.callback_query((F.data == "slot_busy") & BookingStates.choosing_slot)
+@router.callback_query((F.data == "slot_busy"), StateFilter(BookingStates.choosing_slot))
 async def slot_busy(callback: CallbackQuery) -> None:
     """Show occupied slot alert."""
 
     await callback.answer("Занято", show_alert=True)
 
 
-@router.callback_query(F.data.startswith("slot:") & BookingStates.choosing_slot)
+@router.callback_query(F.data.startswith("slot:"), StateFilter(BookingStates.choosing_slot))
 async def choose_slot(callback: CallbackQuery, state: FSMContext) -> None:
     """Ask user to confirm selected 30-minute slot."""
 
@@ -171,7 +172,7 @@ async def choose_slot(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.callback_query((F.data == "confirm_slot") & BookingStates.confirming)
+@router.callback_query((F.data == "confirm_slot"), StateFilter(BookingStates.confirming))
 async def confirm_slot(callback: CallbackQuery, state: FSMContext, client: BackendClient) -> None:
     """Create booking hold with automatic table assignment."""
 
