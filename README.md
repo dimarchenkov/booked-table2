@@ -42,6 +42,10 @@ docker compose exec api python -m app.scripts.seed
 - Логин: `ADMIN_EMAIL`
 - Пароль: хэш `ADMIN_PASSWORD_HASH` (bcrypt)
 
+Если админка работает за HTTPS через reverse proxy (Angie/Nginx),
+обязательно прокидывайте заголовок `X-Forwarded-Proto https`, иначе браузер (например Safari)
+может считать форму логина "небезопасной".
+
 ### Генерация bcrypt-хэша
 
 ```bash
