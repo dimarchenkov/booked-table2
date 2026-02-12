@@ -53,6 +53,14 @@ class BackendClient:
 
         async with httpx.AsyncClient(base_url=self.base_url) as client:
             response = await client.post("/bookings/hold/auto", json=payload)
+            if response.status_code == 409:
+                detail = None
+                try:
+                    body = response.json()
+                    detail = body.get("detail") if isinstance(body, dict) else None
+                except ValueError:
+                    detail = None
+                return {"conflict": True, "detail": detail}
             response.raise_for_status()
             return response.json()
 

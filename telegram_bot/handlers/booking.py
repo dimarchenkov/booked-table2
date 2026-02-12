@@ -296,6 +296,13 @@ async def confirm_slot(callback: CallbackQuery, state: FSMContext, client: Backe
             return
         raise
 
+    if booking.get("conflict"):
+        message = booking.get("detail") or "Этот интервал уже заняли. Выберите другой слот или длительность."
+        await callback.message.answer(message)
+        await callback.answer("Слот занят", show_alert=True)
+        await state.set_state(BookingStates.choosing_slot)
+        return
+
     hold_minutes = booking.get("hold_minutes", 10)
     table_label = booking.get("table_name") or f"Стол №{booking['table_id']}"
 
