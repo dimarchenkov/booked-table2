@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+import httpx
 from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
@@ -15,7 +16,8 @@ from telegram_bot.services.backend_client import BackendClient
 router = Router()
 MAX_DAYS_AHEAD = 14
 SLOTS_PER_PAGE = 12
-SLOT_DURATION_MINUTES = 30
+MIN_DURATION_HOURS = 1
+MAX_DURATION_HOURS = 8
 
 
 class BookingStates(StatesGroup):
@@ -23,6 +25,7 @@ class BookingStates(StatesGroup):
 
     choosing_day = State()
     choosing_slot = State()
+    choosing_duration = State()
     confirming = State()
 
 
@@ -30,16 +33,44 @@ def _format_day_label(day: date) -> str:
     return day.strftime("%a %d.%m")
 
 
+def _slot_step_minutes(day_slots: list[dict]) -> int:
+    """Infer slot step from data; fallback to 30 minutes."""
+
+    if len(day_slots) < 2:
+        return 30
+    first = datetime.fromisoformat(day_slots[0]["start_at"])
+    second = datetime.fromisoformat(day_slots[1]["start_at"])
+    step = int((second - first).total_seconds() // 60)
+    return step if step > 0 else 30
+
+
+def _can_fit_duration(day_slots: list[dict], slot_index: int, duration_hours: int) -> bool:
+    """Check if consecutive free slots can fit selected duration."""
+
+    step = _slot_step_minutes(day_slots)
+    required_steps = max(1, (duration_hours * 60) // step)
+    if slot_index + required_steps > len(day_slots):
+        return False
+    return all(day_slots[i]["is_free"] for i in range(slot_index, slot_index + required_steps))
+
+
+def _calculate_end_at(start_at_iso: str, day_slots: list[dict], duration_hours: int) -> str:
+    """Calculate booking end from start and selected duration."""
+
+    start_dt = datetime.fromisoformat(start_at_iso)
+    end_dt = start_dt + timedelta(hours=duration_hours)
+    return end_dt.isoformat()
+
+
 async def _show_week(message: Message | CallbackQuery, state: FSMContext, week_start: int) -> None:
     """Render week selector within 14-day window."""
 
-    today = date.today()
     max_offset = MAX_DAYS_AHEAD - 1
     week_start = max(0, min(week_start, max_offset))
 
     builder = InlineKeyboardBuilder()
     for offset in range(week_start, min(week_start + 7, MAX_DAYS_AHEAD)):
-        day = today + timedelta(days=offset)
+        day = date.today() + timedelta(days=offset)
         builder.button(text=_format_day_label(day), callback_data=f"day:{day.isoformat()}")
     builder.adjust(2)
 
@@ -143,7 +174,7 @@ async def slot_busy(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("slot:"), StateFilter(BookingStates.choosing_slot))
 async def choose_slot(callback: CallbackQuery, state: FSMContext) -> None:
-    """Ask user to confirm selected 30-minute slot."""
+    """Ask user to choose booking duration for selected start slot."""
 
     slot_index = int(callback.data.split(":")[1])
     data = await state.get_data()
@@ -151,26 +182,92 @@ async def choose_slot(callback: CallbackQuery, state: FSMContext) -> None:
     if slot_index >= len(day_slots):
         await callback.answer("Слот не найден", show_alert=True)
         return
-    slot = day_slots[slot_index]
-    if not slot["is_free"]:
+    if not day_slots[slot_index]["is_free"]:
         await callback.answer("Занято", show_alert=True)
         return
 
-    await state.update_data(chosen_slot=slot)
-    start = datetime.fromisoformat(slot["start_at"]).strftime("%d.%m.%Y %H:%M")
+    start = datetime.fromisoformat(day_slots[slot_index]["start_at"]).strftime("%d.%m.%Y %H:%M")
+    kb = InlineKeyboardBuilder()
+    for h in range(MIN_DURATION_HOURS, MAX_DURATION_HOURS + 1):
+        if _can_fit_duration(day_slots, slot_index, h):
+            kb.button(text=f"{h} ч ✅", callback_data=f"dur:{h}")
+        else:
+            kb.button(text=f"{h} ч ❌", callback_data="dur_busy")
+    kb.adjust(4)
+    kb.row(InlineKeyboardButton(text="🔙 Назад к слотам", callback_data=f"slots_page:{data['selected_day']}:0"))
+
+    await state.update_data(slot_index=slot_index)
+    await state.set_state(BookingStates.choosing_duration)
+    await callback.message.answer(f"Старт: {start}\nВыберите длительность:", reply_markup=kb.as_markup())
+    await callback.answer()
+
+
+@router.callback_query((F.data == "dur_busy"), StateFilter(BookingStates.choosing_duration))
+async def duration_busy(callback: CallbackQuery) -> None:
+    """Show alert when chosen duration doesn't fit."""
+
+    await callback.answer("Недостаточно свободных слотов подряд", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("dur:"), StateFilter(BookingStates.choosing_duration))
+async def choose_duration(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ask user to confirm booking for selected duration."""
+
+    duration_hours = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    day_slots = data.get("day_slots", [])
+    slot_index = data.get("slot_index")
+    if slot_index is None or slot_index >= len(day_slots):
+        await callback.answer("Слот не выбран", show_alert=True)
+        return
+    if not _can_fit_duration(day_slots, slot_index, duration_hours):
+        await callback.answer("Этот интервал уже занят", show_alert=True)
+        return
+
+    start_at = day_slots[slot_index]["start_at"]
+    end_at = _calculate_end_at(start_at, day_slots, duration_hours)
+    start_label = datetime.fromisoformat(start_at).strftime("%d.%m.%Y %H:%M")
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm_slot")],
-            [InlineKeyboardButton(text="🔙 Назад к слотам", callback_data=f"slots_page:{data['selected_day']}:0")],
+            [InlineKeyboardButton(text="🔙 Назад к длительности", callback_data="back_duration")],
         ]
     )
+    await state.update_data(chosen_slot={"start_at": start_at, "end_at": end_at, "duration_hours": duration_hours})
     await state.set_state(BookingStates.confirming)
     await callback.message.answer(
-        f"Дата и время: {start}\nДлительность: {SLOT_DURATION_MINUTES} минут. Подтвердить?",
+        f"Дата и время: {start_label}\nДлительность: {duration_hours} ч. Подтвердить?",
         reply_markup=keyboard,
     )
     await callback.answer()
 
+
+
+
+@router.callback_query((F.data == "back_duration"), StateFilter(BookingStates.confirming))
+async def back_duration(callback: CallbackQuery, state: FSMContext) -> None:
+    """Return from confirmation to duration selection."""
+
+    data = await state.get_data()
+    day_slots = data.get("day_slots", [])
+    slot_index = data.get("slot_index")
+    if slot_index is None or slot_index >= len(day_slots):
+        await callback.answer("Слот не выбран", show_alert=True)
+        return
+
+    start = datetime.fromisoformat(day_slots[slot_index]["start_at"]).strftime("%d.%m.%Y %H:%M")
+    kb = InlineKeyboardBuilder()
+    for h in range(MIN_DURATION_HOURS, MAX_DURATION_HOURS + 1):
+        if _can_fit_duration(day_slots, slot_index, h):
+            kb.button(text=f"{h} ч ✅", callback_data=f"dur:{h}")
+        else:
+            kb.button(text=f"{h} ч ❌", callback_data="dur_busy")
+    kb.adjust(4)
+    kb.row(InlineKeyboardButton(text="🔙 Назад к слотам", callback_data=f"slots_page:{data['selected_day']}:0"))
+
+    await state.set_state(BookingStates.choosing_duration)
+    await callback.message.answer(f"Старт: {start}\nВыберите длительность:", reply_markup=kb.as_markup())
+    await callback.answer()
 
 @router.callback_query((F.data == "confirm_slot"), StateFilter(BookingStates.confirming))
 async def confirm_slot(callback: CallbackQuery, state: FSMContext, client: BackendClient) -> None:
@@ -188,7 +285,17 @@ async def confirm_slot(callback: CallbackQuery, state: FSMContext, client: Backe
         "tg_user_id": str(callback.from_user.id),
         "name": callback.from_user.full_name,
     }
-    booking = await client.create_hold_auto(payload)
+
+    try:
+        booking = await client.create_hold_auto(payload)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
+            await callback.message.answer("Этот интервал уже заняли. Выберите другой слот или длительность.")
+            await callback.answer("Слот занят", show_alert=True)
+            await state.set_state(BookingStates.choosing_slot)
+            return
+        raise
+
     hold_minutes = booking.get("hold_minutes", 10)
     table_label = booking.get("table_name") or f"Стол №{booking['table_id']}"
 
