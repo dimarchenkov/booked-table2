@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from urllib.parse import urlparse
 
 import httpx
 from aiogram import F, Router
@@ -18,6 +19,17 @@ MAX_DAYS_AHEAD = 14
 SLOTS_PER_PAGE = 12
 MIN_DURATION_HOURS = 1
 MAX_DURATION_HOURS = 8
+
+def _is_telegram_safe_url(value: str) -> bool:
+    """Return True for URLs acceptable by Telegram URL buttons."""
+
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host or host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+        return False
+    return True
 
 
 class BookingStates(StatesGroup):
@@ -307,12 +319,17 @@ async def confirm_slot(callback: CallbackQuery, state: FSMContext, client: Backe
     table_label = booking.get("table_name") or f"Стол №{booking['table_id']}"
 
     buttons = []
-    if booking.get("payment_url"):
-        buttons.append([InlineKeyboardButton(text="Оплатить", url=booking["payment_url"])])
+    payment_url = booking.get("payment_url")
+    if payment_url and _is_telegram_safe_url(payment_url):
+        buttons.append([InlineKeyboardButton(text="Оплатить", url=payment_url)])
     buttons.append([InlineKeyboardButton(text="Отменить бронь", callback_data=f"cancel_hold:{booking['id']}")])
 
+    payment_hint = ""
+    if payment_url and not _is_telegram_safe_url(payment_url):
+        payment_hint = "\nСсылка на оплату временно недоступна в Telegram. Обратитесь к администратору."
+
     await callback.message.answer(
-        f"Готово! Назначен стол: {table_label}. Оплатите в течение {hold_minutes} минут.",
+        f"Готово! Назначен стол: {table_label}. Оплатите в течение {hold_minutes} минут.{payment_hint}",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await state.clear()
